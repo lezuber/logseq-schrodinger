@@ -8,7 +8,7 @@ const App: React.FC = () => {
   const [noteName, setNoteName] = useState(() => {
     logseq.Editor.getCurrentPage().then((page) => {
       setNoteName(page.originalName);
-      setHugoFileName(page.name)
+      setHugoFileName(page.name);
     });
     return "noteName";
   });
@@ -63,7 +63,10 @@ const App: React.FC = () => {
     setMappedtagsValues(targettedValues);
   };
   const createNewCategory = () => {
-    setMappedCategoryValues([...mappedCategoryValues, { category: "category" }]);
+    setMappedCategoryValues([
+      ...mappedCategoryValues,
+      { category: "category" },
+    ]);
   };
   const deleteCategory = (index: number) => {
     let targettedValues = [...mappedCategoryValues];
@@ -190,27 +193,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </div>
-            <div className="flex justify-center">
-              <button
-                className=" border-light-300 border-2 w-200px hover:bg-black p-3 px-5 rounded-lg"
-                onClick={async () => {
-                  getBlocksInPage(
-                    { page: await ( logseq.Editor.getCurrentPage()) },
-                    true,
-                    true,
-                    mappedtagsValues,
-                    [
-                      { updatedDate: updatedDate },
-                      { originalDate: originalDate },
-                    ],
-                    [{ noteName: noteName }, { hugoFileName: hugoFileName }],
-                    mappedCategoryValues
-                  );
-                }}
-              >
-                Convert
-              </button>
             </div>
           </div>
         </div>

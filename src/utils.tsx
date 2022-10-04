@@ -1,44 +1,30 @@
-import '@logseq/libs';
+import "@logseq/libs";
 
-import { saveAs } from 'file-saver';
-import JSZip, { file } from 'jszip';
-import { title } from 'process';
-import React from 'react';
-import ReactDOM from 'react-dom';
+import { saveAs } from "file-saver";
+import JSZip, { file } from "jszip";
+import { title } from "process";
+import React from "react";
+import ReactDOM from "react-dom";
 
-import { BlockEntity, PageEntity, SettingSchemaDesc } from '@logseq/libs/dist/LSPlugin';
+import {
+  BlockEntity,
+  PageEntity,
+  SettingSchemaDesc,
+} from "@logseq/libs/dist/LSPlugin";
 
-import App from './App';
-import { handleClosePopup } from './handleClosePopup';
-import { linkFormats, path } from './index';
+import App from "./App";
+import { handleClosePopup } from "./handleClosePopup";
+import { linkFormats, path } from "./index";
 
 export var blocks2 = [];
 var errorTracker = [];
 var zip = new JSZip();
 var imageTracker = [];
 let allPublicPages;
-let allPublicLinks = [] //list of all exported pages
-
-//Retired function
-//I kept on missing pages?!?!?!
-//Never figured out why
-export async function getAllPublicPages_orig() {
-  errorTracker = [];
-  logseq.DB.q("(page-property public)").then((result) => {
-    const mappedResults = result.map((page) => {
-      return page.name;
-    });
-    for (const x in mappedResults) {
-      if (x != `${mappedResults.length - 1}`) {
-        getBlocksInPage({ page: mappedResults[x] }, false, false);
-      } else {
-        getBlocksInPage({ page: mappedResults[x] }, false, true);
-      }
-    }
-  });
-}
+let allPublicLinks = []; //list of all exported pages
 
 export async function getAllPublicPages() {
+  console.log("Let's go!!");
   //needs to be both public, and a page (with a name)
   const query =
     "[:find (pull ?p [*]) :where [?p :block/properties ?pr] [(get ?pr :public) ?t] [(= true ?t)][?p :block/name ?n]]";
@@ -46,15 +32,12 @@ export async function getAllPublicPages() {
   allPublicPages = allPublicPages?.flat(); //FIXME is this needed?
 
   for (const x of allPublicPages) {
-    allPublicLinks.push(x["original-name"].toLowerCase())
+    allPublicLinks.push(x["original-name"].toLowerCase());
   }
-  
+
   for (const x in allPublicPages) {
-    if (x != `${allPublicPages.length - 1}`) {
-      await getBlocksInPage({ page: allPublicPages[x] }, false, false);
-    } else {
-      await getBlocksInPage({ page: allPublicPages[x] }, false, true);
-    }
+    const lastElement = x == `${allPublicPages.length - 1}`;
+    await getBlocksInPage(allPublicPages[x], lastElement);
   }
 }
 
@@ -79,84 +62,37 @@ function hugoDate(timestamp) {
 }
 
 //parse files meta-data
-async function parseMeta(
-  curPage,
-  tagsArray = [],
-  dateArray = [],
-  titleDetails = [],
-  categoriesArray = []
-) {
-  let propList = [];
+async function parseMeta(currPage) {
+  let propList = { categories: [], tags: [], date: "", title: "" };
 
-  //get all properties - fix later
-  if (curPage?.page.properties != undefined) {
-    propList = curPage?.page.properties;
-  }
-  //Title
-  //FIXME is filename used?
-  propList.title = curPage.page["original-name"];
-  if (titleDetails.length > 0) {
-    propList.title = titleDetails[0].noteName;
-    propList.fileName = titleDetails[1].hugoFileName;
-  }
+  propList.title = currPage["original-name"];
 
-  //Tags
-  propList.tags = curPage?.page.properties.tags
-    ? curPage?.page.properties.tags
-    : [];
-  if (tagsArray != []) {
-    let formattedTagsArray = [];
-    for (const tag in tagsArray) {
-      formattedTagsArray.push(tagsArray[tag].tags);
-    }
-    if (propList.tags != undefined) {
-      for (const tag in formattedTagsArray) {
-        propList.tags.push(formattedTagsArray[tag]);
-      }
-    } else {
-      propList.tags = formattedTagsArray;
-    }
-  }
+  if (currPage.properties.tags) propList.tags.push(...currPage.properties.tags);
 
-  //Categories - 2 possible spellings!
-  const tmpCat = curPage?.page.properties.category
-    ? curPage?.page.properties.category
-    : [];
-  propList.categories = curPage?.page.properties.categories
-    ? curPage?.page.properties.categories
-    : tmpCat;
-  if (categoriesArray != []) {
-    let formattedCategoriesArray = [];
-    for (const category in categoriesArray) {
-      formattedCategoriesArray.push(categoriesArray[category].category);
-    }
-    if (propList.categories != undefined) {
-      for (const category in formattedCategoriesArray) {
-        propList.categories.push(formattedCategoriesArray[category]);
-      }
-    } else {
-      propList.categories = formattedCategoriesArray;
-    }
+  if (currPage.properties.categories)
+    propList.categories.push(...currPage.properties.categories);
+
+  if (currPage.properties.type) {
+    propList.tags = [
+      ...new Set([...currPage.properties.type, ...propList.tags]),
+    ];
   }
 
   //Date - if not defined, convert Logseq timestamp
-  propList.date = curPage?.page.properties.date
-    ? curPage?.page.properties.date
-    : hugoDate(curPage.page["created-at"]);
-  propList.lastMod = curPage?.page.properties.lastmod
-    ? curPage?.page.properties.lastmod
-    : hugoDate(curPage.page["updated-at"]);
-  if (dateArray.length > 0) {
-    propList.date = dateArray[1].originalDate;
-    propList.lastMod = dateArray[0].updatedDate;
-  }
+  propList.date = currPage.properties.date
+    ? currPage.properties.date
+    : hugoDate(currPage["created-at"]);
+
+  propList.lastMod = currPage.properties.lastmod
+    ? currPage.properties.lastmod
+    : hugoDate(currPage["updated-at"]);
 
   //these properties should not be exported to Hugo
-  const nope = ["filters", "public"]
-  for (const nono of nope){
-    delete propList[nono]
+  const nope = ["filters", "public"];
+  for (const nono of nope) {
+    delete propList[nono];
   }
-  
+
   //convert propList to Hugo yaml
   // https://gohugo.io/content-management/front-matter/
   let ret = `---`;
@@ -172,67 +108,45 @@ async function parseMeta(
   return ret;
 }
 
-export async function getBlocksInPage(
-  e,
-  singleFile,
-  isLast,
-  tagsArray = [],
-  dateArray = [],
-  titleDetails = [],
-  categoriesArray = [],
-  allPublicPages = []
-) {
+export async function getBlocksInPage(currPage, isLast) {
   //if e.page.originalName is undefined, set page to equal e.page.original-name
-  let curPage = e.page;
-  if (curPage.originalName != undefined) {
-    curPage["original-name"] = curPage.originalName;
+  if (currPage.originalName != undefined) {
+    currPage["original-name"] = currPage.originalName;
   }
 
   const docTree = await logseq.Editor.getPageBlocksTree(
-    curPage["original-name"]
+    currPage["original-name"]
   );
 
-  const metaData = await parseMeta(
-    e,
-    tagsArray,
-    dateArray,
-    titleDetails,
-    categoriesArray
-  );
+  const metaData = await parseMeta(currPage, [], [], [], []);
   // parse page-content
 
   let finalString = await parsePage(metaData, docTree);
 
-  // FIXME ??
-  if (singleFile) {
-    logseq.hideMainUI();
-    handleClosePopup();
-    download(`${titleDetails[1].hugoFileName}.md`, finalString);
-  } else {
-    // console.log(`e["original-name"]: ${e["original-name"]}`);
-    //page looks better in the URL 
-    zip.file(
-      `pages/${curPage["original-name"].replaceAll(
-        /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g,
-        ""
-      )}.md`,
-      finalString
-    );
+  // console.log(`e["original-name"]: ${e["original-name"]}`);
+  //page looks better in the URL
+  // the following regex removes all non-alphanumeric characters
+  zip.file(
+    `pages/${currPage["original-name"].replaceAll(
+      /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g,
+      ""
+    )}.md`,
+    finalString
+  );
 
-    if (isLast) {
-      setTimeout(() => {
-        console.log(zip);
-        zip.generateAsync({ type: "blob" }).then(function (content) {
-          // see FileSaver.js
-          saveAs(content, "publicExport.zip");
-          //wait one second
-          // setTimeout(() => {
-          //   saveAs(content, "publicExport.zip");
-          // }, 1000);
-          zip = new JSZip();
-        });
-      }, imageTracker.length * 102);
-    }
+  if (isLast) {
+    setTimeout(() => {
+      console.log(zip);
+      zip.generateAsync({ type: "blob" }).then(function (content) {
+        // see FileSaver.js
+        saveAs(content, "publicExport.zip");
+        //wait one second
+        // setTimeout(() => {
+        //   saveAs(content, "publicExport.zip");
+        // }, 1000);
+        zip = new JSZip();
+      });
+    }, imageTracker.length * 102);
   }
 }
 
@@ -241,9 +155,8 @@ async function parsePage(finalString: string, docTree) {
   for (const x in docTree) {
     // skip meta-data
     if (!(parseInt(x) === 0 && docTree[x].level === 1)) {
-
       //parseText will return 'undefined' if a block skipped
-      const ret = await parseText(docTree[x])
+      const ret = await parseText(docTree[x]);
       if (typeof ret != "undefined") {
         finalString = `${finalString}\n${ret}`;
       }
@@ -263,16 +176,19 @@ function parseLinks_old(text: string, allPublicPages) {
   // Two kinds of links: [[a link]]
   //                     [A description]([[a link]])
   // Regular links are done by Hugo [logseq](https://logseq.com)
-  const reLink:RegExp      = /\[\[.*?\]\]/g
-  const reDescrLink:RegExp = /\[([a-zA-Z ]*?)\]\(\[\[(.*?)\]\]\)/g
-                             //[garden]([[digital garden]])
+  const reLink: RegExp = /\[\[.*?\]\]/g;
+  const reDescrLink: RegExp = /\[([a-zA-Z ]*?)\]\(\[\[(.*?)\]\]\)/g;
+  //[garden]([[digital garden]])
   if (logseq.settings.linkFormat == "Hugo Format") {
     if (reDescrLink.test(text)) {
       text = text.replaceAll(reDescrLink, (result) => {
         for (const x in allPublicPages) {
-          if (result[2].toLowerCase == allPublicPages[x]["original-name"].toLowerCase) {
-            const txt = reDescrLink.exec(result)
-            return (txt) ? `[${txt[1]}]({{< ref "${txt[2]}" >}})` : ""
+          if (
+            result[2].toLowerCase ==
+            allPublicPages[x]["original-name"].toLowerCase
+          ) {
+            const txt = reDescrLink.exec(result);
+            return txt ? `[${txt[1]}]({{< ref "${txt[2]}" >}})` : "";
             // return (txt) ? `[${txt[1]}]({{< ref "${txt[2].replaceAll(" ","_")}" >}})` : ""
           }
         }
@@ -281,11 +197,12 @@ function parseLinks_old(text: string, allPublicPages) {
     text = text.replaceAll(reLink, (match) => {
       const txt = match.substring(2, match.length - 2);
       for (const x in allPublicPages) {
-        if (txt.toUpperCase() == allPublicPages[x]["original-name"].toUpperCase()) {
-          return `[${txt}]({{< ref "${allPublicPages[x]["original-name"].replaceAll(
-            " ",
-            " "
-          )}" >}})`;
+        if (
+          txt.toUpperCase() == allPublicPages[x]["original-name"].toUpperCase()
+        ) {
+          return `[${txt}]({{< ref "${allPublicPages[x][
+            "original-name"
+          ].replaceAll(" ", " ")}" >}})`;
         }
       }
       return txt;
@@ -295,7 +212,7 @@ function parseLinks_old(text: string, allPublicPages) {
     text = text.replaceAll("[[", "");
     text = text.replaceAll("]]", "");
   }
-  return text
+  return text;
 }
 
 function parseLinks(text: string, allPublicPages) {
@@ -305,34 +222,36 @@ function parseLinks(text: string, allPublicPages) {
   // Two kinds of links: [[a link]]
   //                     [A description]([[a link]])
   // Regular links are done by Hugo [logseq](https://logseq.com)
-  const reLink:RegExp      = /\[\[(.*?)\]\]/gmi
-  const reDescrLink:RegExp = /\[([a-zA-Z ]*?)\]\(\[\[(.*?)\]\]\)/gmi
+  const reLink: RegExp = /\[\[(.*?)\]\]/gim;
+  const reDescrLink: RegExp = /\[([a-zA-Z ]*?)\]\(\[\[(.*?)\]\]\)/gim;
 
   // FIXME why doesn't this work?
   // if (! reDescrLink.test(text) && ! reLink.test(text)) return text
-  
-  let result
-  while(result = (reDescrLink.exec(text) || reLink.exec(text))) {
+
+  let result;
+  while ((result = reDescrLink.exec(text) || reLink.exec(text))) {
     if (allPublicLinks.includes(result[result.length - 1].toLowerCase())) {
-      text = text.replace(result[0],`[${result[1]}]({{< ref "/pages/${result[result.length - 1]}" >}})`)
+      text = text.replace(
+        result[0],
+        `[${result[1]}]({{< ref "/pages/${result[result.length - 1]}" >}})`
+      );
     }
-  } 
-    if (logseq.settings.linkFormat == "Without brackets") {
-      text = text.replaceAll("[[", "");
-      text = text.replaceAll("]]", "");
-    }
-  return text
+  }
+  if (logseq.settings.linkFormat == "Without brackets") {
+    text = text.replaceAll("[[", "");
+    text = text.replaceAll("]]", "");
+  }
+  return text;
 }
 
 async function parseNamespaces(text: string, blockLevel: number) {
-  const namespace:RegExp = /{{namespace\s([^}]+)}}/gmi
+  const namespace: RegExp = /{{namespace\s([^}]+)}}/gim;
 
-  let result
-  while (result = (namespace.exec(text))) {
+  let result;
+  while ((result = namespace.exec(text))) {
     const currentNamespaceName = result[result.length - 1];
 
-    const query =
-      `[:find (pull ?c [*]) :where [?p :block/name "${currentNamespaceName.toLowerCase()}"] [?c :block/namespace ?p]]`;
+    const query = `[:find (pull ?c [*]) :where [?p :block/name "${currentNamespaceName.toLowerCase()}"] [?c :block/namespace ?p]]`;
     let namespacePages = await logseq.DB.datascriptQuery(query);
     namespacePages = namespacePages?.flat(); //FIXME is this needed?
 
@@ -340,17 +259,23 @@ async function parseNamespaces(text: string, blockLevel: number) {
     if (logseq.settings.bulletHandling == "Convert Bullets") {
       txtBeforeNamespacePage = " ".repeat(blockLevel * 2) + "+ ";
     }
-    
+
     let namespaceContent = `**Namespace [[${currentNamespaceName}]]**\n\n`;
     if (allPublicLinks.includes(currentNamespaceName.toLowerCase())) {
-      namespaceContent = namespaceContent.replace(`[[${currentNamespaceName}]]`,`[${currentNamespaceName}]({{< ref "/pages/${currentNamespaceName}" >}})`);
+      namespaceContent = namespaceContent.replace(
+        `[[${currentNamespaceName}]]`,
+        `[${currentNamespaceName}]({{< ref "/pages/${currentNamespaceName}" >}})`
+      );
     }
 
     for (const page of namespacePages) {
       const pageOrigName = page["original-name"];
       if (allPublicLinks.includes(page["original-name"].toLowerCase())) {
         const pageName = pageOrigName.replace(`${currentNamespaceName}/`, "");
-        namespaceContent = namespaceContent.concat(txtBeforeNamespacePage + `[${pageName}]({{< ref "/pages/${pageOrigName}" >}})\n\n`);
+        namespaceContent = namespaceContent.concat(
+          txtBeforeNamespacePage +
+            `[${pageName}]({{< ref "/pages/${pageOrigName}" >}})\n\n`
+        );
       }
     }
 
@@ -369,13 +294,15 @@ async function parseText(block: BlockEntity) {
   let txtAfter: string = "\n";
   const prevBlock: BlockEntity = await logseq.Editor.getBlock(block.left.id, {
     includeChildren: false,
-  });  
+  });
 
   //Block refs - needs to be at the beginning so the block gets parsed
   //FIXME they need some indicator that it *was* an embed
-  const rxGetId = /\(\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)\)/;
-  const rxGetEd = /{{embed \(\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)\)}}/;
-  const blockId = ( rxGetEd.exec(text) || rxGetId.exec(text) )
+  const rxGetId =
+    /\(\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)\)/;
+  const rxGetEd =
+    /{{embed \(\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)\)}}/;
+  const blockId = rxGetEd.exec(text) || rxGetId.exec(text);
   if (blockId != null) {
     const block = await logseq.Editor.getBlock(blockId[1], {
       includeChildren: true,
@@ -386,12 +313,12 @@ async function parseText(block: BlockEntity) {
       text = text.replace(
         blockId[0],
         block.content.substring(0, block.content.indexOf("id::"))
-      )
+      );
     }
   }
-  
+
   //task markers - skip
-  if (block.marker && ! logseq.settings.exportTasks ) return
+  if (block.marker && !logseq.settings.exportTasks) return;
 
   //Images
   //FIXME ![image.png](../assets/image_1650196318593_0.png){:class medium, :height 506, :width 321}
@@ -411,7 +338,7 @@ async function parseText(block: BlockEntity) {
         }
       });
     });
-  } catch (error) { }
+  } catch (error) {}
 
   // FIXME for now all indention is stripped out
   // Add indention — level zero is stripped of "-", rest are lists
@@ -441,19 +368,18 @@ async function parseText(block: BlockEntity) {
   //youtube embed
   //Change {{youtube url}} via regex
   const reYoutube = /{{youtube(.*?)}}/g;
-  text = text.replaceAll(reYoutube, (match)=>{
-    const youtubeRegex = /(youtu(?:.*\/v\/|.*v\=|\.be\/))([A-Za-z0-9_\-]{11})/
-    const youtubeId = youtubeRegex.exec(match)
+  text = text.replaceAll(reYoutube, (match) => {
+    const youtubeRegex = /(youtu(?:.*\/v\/|.*v\=|\.be\/))([A-Za-z0-9_\-]{11})/;
+    const youtubeId = youtubeRegex.exec(match);
     if (youtubeId != null) {
-      return `{{< youtube ${youtubeId[2]} >}}`
+      return `{{< youtube ${youtubeId[2]} >}}`;
     }
-  })
-
+  });
 
   //height and width syntax regex
   // {:height 239, :width 363}
-  const heightWidthRegex = /{:height\s*[0-9]*,\s*:width\s*[0-9]*}/g
-  text = text.replaceAll(heightWidthRegex, "")
+  const heightWidthRegex = /{:height\s*[0-9]*,\s*:width\s*[0-9]*}/g;
+  text = text.replaceAll(heightWidthRegex, "");
 
   //highlighted text, not supported in hugo by default!
   re = /(==(.*?)==)/gm;
@@ -495,7 +421,7 @@ function addImageToZip(filePath) {
   setTimeout(() => {
     var base64 = getBase64Image(element);
     document.body.removeChild(element);
-    console.log(base64)
+    console.log(base64);
     if (base64 != "data:,") {
       zip.file(
         "assets/" +
