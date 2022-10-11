@@ -69,14 +69,14 @@ async function parseMeta(currPage) {
 
   if (currPage.properties.tags) propList.tags.push(...currPage.properties.tags);
 
-  if (currPage.properties.categories)
-    propList.categories.push(...currPage.properties.categories);
-
   if (currPage.properties.type) {
     propList.tags = [
       ...new Set([...currPage.properties.type, ...propList.tags]),
     ];
   }
+
+  if (currPage.properties.categories)
+    propList.categories.push(...currPage.properties.categories);
 
   //Date - if not defined, convert Logseq timestamp
   propList.date = currPage.properties.date
@@ -108,6 +108,16 @@ async function parseMeta(currPage) {
   return ret;
 }
 
+function removeNonAlphaNumeric(str) {
+  // stripps all non-alphanumeric characters except spaces, scores and underscrores
+  let stripped = str.replace(/[^a-zA-Z0-9 _-]/g, "");
+  // now stripp all surrounding spaces, for note names like "🎉 Sucess with Icon" not having a score in the beginning
+  stripped = stripped.trim();
+  // now remove all spaces
+  stripped = stripped.replace(/\s/g, "-");
+  return stripped;
+}
+
 export async function getBlocksInPage(currPage, isLast) {
   //if e.page.originalName is undefined, set page to equal e.page.original-name
   if (currPage.originalName != undefined) {
@@ -127,10 +137,7 @@ export async function getBlocksInPage(currPage, isLast) {
   //page looks better in the URL
   // the following regex removes all non-alphanumeric characters
   zip.file(
-    `pages/${currPage["original-name"].replaceAll(
-      /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g,
-      ""
-    )}.md`,
+    `pages/${removeNonAlphaNumeric(currPage["original-name"])}.md`,
     finalString
   );
 
@@ -233,7 +240,9 @@ function parseLinks(text: string, allPublicPages) {
     if (allPublicLinks.includes(result[result.length - 1].toLowerCase())) {
       text = text.replace(
         result[0],
-        `[${result[1]}]({{< ref "/pages/${result[result.length - 1]}" >}})`
+        `[${result[1]}]({{< ref "/pages/${removeNonAlphaNumeric(
+          result[result.length - 1]
+        )}" >}})`
       );
     }
   }
@@ -289,6 +298,7 @@ async function parseText(block: BlockEntity) {
   //returns either a hugo block or `undefined`
   let re: RegExp;
   let text = block.content;
+
   // console.log("block", block)
   let txtBefore: string = "";
   let txtAfter: string = "\n";
@@ -331,7 +341,7 @@ async function parseText(block: BlockEntity) {
         let finalLink = match.substring(1, match.length - 1);
         // return (match.substring(1, match.length - 1))
         text = text.replace(match, match.toLowerCase());
-        if (!finalLink.includes("http") || !finalLink.includes(".pdf")) {
+        if (!finalLink.includes(".pdf")) {
           text = text.replace("../", "/");
           imageTracker.push(finalLink);
           addImageToZip(finalLink);
@@ -401,38 +411,33 @@ async function parseText(block: BlockEntity) {
   }
 }
 
-function getBase64Image(img) {
-  var canvas = document.createElement("canvas");
-  canvas.width = img.width;
-  canvas.height = img.height;
-  var ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0);
-  var dataURL = canvas.toDataURL("image/png");
-  return dataURL.replace(/^data:image\/(png|jpg);base64,/, "");
-}
-
-function addImageToZip(filePath) {
-  var element = document.createElement("img");
-  let formattedFilePath = filePath.replace("..", path);
-  element.setAttribute("src", formattedFilePath);
-  element.style.display = "none";
-
-  document.body.appendChild(element);
-  setTimeout(() => {
-    var base64 = getBase64Image(element);
-    document.body.removeChild(element);
-    console.log(base64);
-    if (base64 != "data:,") {
-      zip.file(
-        "assets/" +
-          filePath.split("/")[filePath.split("/").length - 1].toLowerCase(),
-        base64,
-        { base64: true }
-      );
-    } else {
-      // console.log(base64);
+const imageUrlToBase64 = async (url) => {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  return new Promise((onSuccess, onError) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = function () {
+        onSuccess(this.result);
+      };
+      reader.readAsDataURL(blob);
+    } catch (e) {
+      onError(e);
     }
-  }, 100);
+  });
+};
+
+async function addImageToZip(filePath) {
+  let formattedFilePath = filePath.replace("..", path);
+  const dataUrl = await imageUrlToBase64(formattedFilePath);
+  var idx = dataUrl.indexOf("base64,") + "base64,".length; // or = 28 if you're sure about the prefix
+  var base64 = dataUrl.substring(idx);
+  await zip.file(
+    "assets/" +
+      filePath.split("/")[filePath.split("/").length - 1].toLowerCase(),
+    base64,
+    { base64: true }
+  );
 }
 
 //FIXME don't get it, but it works
